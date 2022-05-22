@@ -3,11 +3,25 @@ import { formatEther } from "ethers/lib/utils";
 
 const walletRegExp = /^0x[a-fA-F0-9]{40}$/;
 
-export interface verifyPaymentResponse {
+declare global {
+    interface Error {
+        details: any;
+    }
+}
+
+export type GetNonceCb = (walletSender: string, transactionNonce: number) => number | Promise<number>;
+
+export interface VerifyPaymentResponse {
     sucess: boolean;
     nonce: number;
     receipt: ethers.providers.TransactionReceipt;
     transferAmount: number;
+}
+
+export interface Configuration {
+    recipientWallet: string;
+    rpcProviderUrl: string;
+    cb: GetNonceCb;
 }
 
 class _Error extends Error {
@@ -20,14 +34,20 @@ class _Error extends Error {
 }
 
 class ConfigurationError extends _Error {
-    constructor(message: string) {
+    constructor(message: string, errCode?: number) {
         super(ConfigurationError, message);
+        if (errCode) {
+            this.details = { errCode };
+        }
     }
 }
 
 class TransactionError extends _Error {
-    constructor(message: string) {
+    constructor(message: string, errCode?: number) {
         super(TransactionError, message);
+        if (errCode) {
+            this.details = { errCode };
+        }
     }
 }
 
@@ -35,23 +55,25 @@ export class Web3Payments {
     private static _configured: boolean = false;
     private static _provider: ethers.providers.JsonRpcProvider;
     private static _recipientWallet: string;
+    private static _getNonceByWalletSender: GetNonceCb;
 
     private static checkConnection() {
         if (!this._configured) {
-            throw new ConfigurationError("Service not configured");
+            throw new ConfigurationError("Service not configured", 4000);
         }
     }
 
-    public static configure(recipientWallet: string, rpcProviderUrl: string): void {
+    public static configure({ recipientWallet, rpcProviderUrl, cb }: Configuration): void {
         if (!walletRegExp.test(recipientWallet)) {
-            throw new ConfigurationError("The recipient's wallet is not a valid wallet address");
+            throw new ConfigurationError("The recipient's wallet is not a valid wallet address", 4001);
         }
         this._recipientWallet = recipientWallet;
+        this._getNonceByWalletSender = cb;
         this._provider = new ethers.providers.JsonRpcProvider(rpcProviderUrl);
         this._configured = true;
     }
 
-    public static async verifyPayment(txHash: string, prevPaymentNonce: number): Promise<verifyPaymentResponse> {
+    public static async verifyPayment(txHash: string): Promise<VerifyPaymentResponse> {
         this.checkConnection();
 
         const receipt = await this._provider.waitForTransaction(txHash);
@@ -63,10 +85,14 @@ export class Web3Payments {
         }
         if (receipt.status === 1) {
             if (tx.to.toLocaleLowerCase() !== this._recipientWallet.toLocaleLowerCase()) {
-                throw new TransactionError("The transfer was to a wallet that does not match the recipient wallet");
+                throw new TransactionError(
+                    "The transfer was to a wallet that does not match the recipient wallet",
+                    5000
+                );
             }
-            if (tx.nonce <= prevPaymentNonce) {
-                throw new TransactionError("Payment for this transaction has already been made");
+            const lastPaymentNonce = await this._getNonceByWalletSender(tx.from, tx.nonce);
+            if (tx.nonce <= lastPaymentNonce) {
+                throw new TransactionError("Payment for this transaction has already been made", 5001);
             }
             return { sucess: true, nonce: tx.nonce, transferAmount, receipt };
         }
