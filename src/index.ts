@@ -75,8 +75,7 @@ export class Web3Payments {
 
     public static async verifyPayment(txHash: string): Promise<VerifyPaymentResponse> {
         this.checkConnection();
-
-        const receipt = await this._provider.waitForTransaction(txHash);
+        const receipt = await this._provider.waitForTransaction(txHash, null, 10000);
         const tx = await this._provider.getTransaction(receipt.transactionHash);
         const transferAmount = +formatEther(tx.value);
 
