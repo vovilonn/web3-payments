@@ -97,7 +97,7 @@ export class Web3Payments {
             }
             const paymentIsAvialable = await this._checkPaymentAvialability(tx);
             if (!paymentIsAvialable) {
-                throw new TransactionError("Payment for this transaction has already been made", "UNAVAILABLE");
+                throw new TransactionError(`Payment for transaction ${tx.hash} has already been made`, "UNAVAILABLE");
             }
             return { sucess: true, transferAmount, receipt, tx, decodedData };
         }
